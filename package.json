@@ -1,0 +1,13 @@
+{
+  "name": "hosteldesk",
+  "private": true,
+  "scripts": {
+    "start": "npm run start --prefix frontend",
+    "dev": "npm run start --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "setup": "npm install --legacy-peer-deps --prefix frontend && npm install",
+    "setup:backend": "python -m pip install -r backend/requirements.txt",
+    "dev:api": "python -m uvicorn server:app --reload --app-dir backend --port 8000",
+    "clean": "node scripts/clean.mjs"
+  }
+}
