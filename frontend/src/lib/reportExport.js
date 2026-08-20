@@ -28,6 +28,117 @@ export function downloadCsv(filename, csvContent) {
   URL.revokeObjectURL(url);
 }
 
+function htmlEscape(s) {
+  if (s == null || s === '') return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function downloadHtml(filename, htmlContent) {
+  const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.replace(/[/\\?%*:|"<>]/g, '-');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Бланки для внутреннего учёта: уведомление о прибытии / регистрация по месту пребывания (по каждому мигранту).
+ */
+export function buildTemporaryStayRegistrationHtml(migrants, brigades, companies, roomNumberById) {
+  const companyById = Object.fromEntries((companies || []).map((c) => [c.id, c]));
+  const brigadeById = Object.fromEntries((brigades || []).map((b) => [b.id, b]));
+
+  const blocks = (migrants || []).map((m) => {
+    const b = brigadeById[m.brigade_id];
+    const comp = b ? companyById[b.company_id] : null;
+    const roomNo =
+      b?.room_id && roomNumberById && roomNumberById[b.room_id] != null
+        ? String(roomNumberById[b.room_id])
+        : b?.room_id
+          ? '—'
+          : '—';
+    const addr = comp?.legal_address ? htmlEscape(comp.legal_address) : '_______________________________';
+    const org = comp ? htmlEscape(comp.name) : '_______________________________';
+    const inn = comp?.inn ? htmlEscape(comp.inn) : '_______';
+
+    return `
+    <section class="form-block">
+      <h2>Уведомление о прибытии / регистрация временного пребывания</h2>
+      <p class="hint">Внутренний бланк для учёта хостела. При подаче в орган миграционного учёта заполните поля по актуальным требованиям 109-ФЗ.</p>
+      <table class="fields">
+        <tr><td class="l">ФИО</td><td class="v">${htmlEscape(m.full_name)}</td></tr>
+        <tr><td class="l">Гражданство</td><td class="v">${m.citizenship ? htmlEscape(m.citizenship) : '—'}</td></tr>
+        <tr><td class="l">Документ (паспорт), номер</td><td class="v">${htmlEscape(m.passport_number)}</td></tr>
+        <tr><td class="l">Дата выдачи паспорта</td><td class="v">${htmlEscape(formatDateRu(m.passport_issued_date))}</td></tr>
+        <tr><td class="l">Срок действия паспорта</td><td class="v">${htmlEscape(formatDateRu(m.passport_expiry_date))}</td></tr>
+        <tr><td class="l">Миграционная карта (номер)</td><td class="v">${htmlEscape(m.migration_card_number) || '—'}</td></tr>
+        <tr><td class="l">Срок миграционной карты</td><td class="v">${m.migration_card_expiry ? htmlEscape(formatDateRu(m.migration_card_expiry)) : '—'}</td></tr>
+        <tr><td class="l">Патент (номер)</td><td class="v">${htmlEscape(m.work_patent_number) || '—'}</td></tr>
+        <tr><td class="l">Срок патента</td><td class="v">${m.work_patent_expiry ? htmlEscape(formatDateRu(m.work_patent_expiry)) : '—'}</td></tr>
+        <tr><td class="l">Бригада (учёт)</td><td class="v">${b ? htmlEscape(b.name) : '—'}</td></tr>
+        <tr><td class="l">Организация (работодатель), ИНН</td><td class="v">${org}, ИНН ${inn}</td></tr>
+        <tr><td class="l">Юридический адрес организации</td><td class="v">${addr}</td></tr>
+        <tr><td class="l">Комната в хостеле (номер)</td><td class="v">${htmlEscape(roomNo)}</td></tr>
+        <tr><td class="l">Дата заселения (по учёту)</td><td class="v">${b ? htmlEscape(formatDateRu(b.check_in_date)) : '—'}</td></tr>
+      </table>
+      <div class="manual">
+        <p><span class="lbl">Срок пребывания (с):</span> «____» __________ 20___ г.</p>
+        <p><span class="lbl">Срок пребывания (по):</span> «____» __________ 20___ г.</p>
+        <p><span class="lbl">Адрес места пребывания (фактический, для миграционного учёта):</span></p>
+        <div class="line">________________________________________________________________________________</div>
+        <p><span class="lbl">Дата и время прибытия к месту пребывания:</span> «____» __________ 20___ г. _____ ч. _____ мин.</p>
+        <p><span class="lbl">Отметки сотрудника миграционного учёта / подпись:</span></p>
+        <div class="line">________________________________________________________________________________</div>
+      </div>
+    </section>`;
+  });
+
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>${migrants.length === 1 ? 'Регистрация временного пребывания' : 'Регистрация временного пребывания — мигранты'}</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11pt; line-height: 1.45; color: #111; max-width: 800px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+    h2 { font-size: 1.05rem; margin: 0 0 0.5rem 0; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    .hint { font-size: 0.85rem; color: #555; margin: 0 0 12px 0; }
+    .form-block { page-break-inside: avoid; margin-bottom: 2.5rem; padding-bottom: 1rem; border-bottom: 1px dashed #bbb; }
+    .form-block:last-child { border-bottom: none; }
+    table.fields { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    table.fields td { padding: 6px 8px; vertical-align: top; border: 1px solid #ddd; }
+    table.fields td.l { width: 38%; background: #f8f9fa; font-weight: 600; }
+    table.fields td.v { }
+    .manual { margin-top: 14px; }
+    .manual p { margin: 8px 0; }
+    .lbl { font-weight: 600; }
+    .line { border-bottom: 1px solid #333; min-height: 1.2em; margin: 4px 0 12px 0; }
+    @media print {
+      body { margin: 12mm; }
+      .form-block { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>${
+    (migrants || []).length === 1
+      ? `Бланк: регистрация временного пребывания — ${htmlEscape((migrants[0] && migrants[0].full_name) || '')}`
+      : 'Бланки: регистрация временного пребывания (все мигранты)'
+  }</h1>
+  <p style="color:#666;font-size:10pt;">Сформировано: ${htmlEscape(new Date().toLocaleString('ru-RU'))}</p>
+  ${blocks.join('\n')}
+</body>
+</html>`;
+}
+
 export function formatDateRu(iso) {
   if (!iso) return '';
   try {
@@ -145,6 +256,7 @@ export function buildCompaniesBrigadesCsv(companies, brigades) {
 export function buildMigrantsCsv(migrants, brigadeNameById) {
   const header = [
     'ФИО',
+    'Гражданство',
     'Бригада',
     'Паспорт',
     'Выдача паспорта',
@@ -156,6 +268,7 @@ export function buildMigrantsCsv(migrants, brigadeNameById) {
   ];
   const rows = migrants.map((m) => [
     m.full_name,
+    m.citizenship || '—',
     brigadeNameById[m.brigade_id] || m.brigade_id,
     m.passport_number,
     formatDateRu(m.passport_issued_date),

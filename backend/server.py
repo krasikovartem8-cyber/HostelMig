@@ -233,6 +233,7 @@ class RoomStatusUpdate(BaseModel):
 class MigrantCreate(BaseModel):
     brigade_id: str
     full_name: str
+    citizenship: Optional[str] = None
     passport_number: str
     passport_issued_date: datetime
     passport_expiry_date: datetime
@@ -338,6 +339,7 @@ def migrant_dict(m: MigrantTable) -> dict:
         "id": m.id,
         "brigade_id": m.brigade_id,
         "full_name": m.full_name,
+        "citizenship": m.citizenship,
         "passport_number": m.passport_number,
         "passport_issued_date": _dt_iso(m.passport_issued_date),
         "passport_expiry_date": _dt_iso(m.passport_expiry_date),
@@ -663,10 +665,17 @@ async def create_migrant(
     if body.passport_expiry_date < body.passport_issued_date:
         raise HTTPException(status_code=400, detail="Срок действия паспорта не может быть раньше даты выдачи")
 
+    citizenship = (body.citizenship or "").strip()
+    if not citizenship:
+        raise HTTPException(status_code=400, detail="Укажите гражданство")
+    if len(citizenship) > 128:
+        raise HTTPException(status_code=400, detail="Гражданство: не более 128 символов")
+
     m = MigrantTable(
         id=str(uuid.uuid4()),
         brigade_id=body.brigade_id,
         full_name=body.full_name,
+        citizenship=citizenship,
         passport_number=body.passport_number,
         passport_issued_date=body.passport_issued_date,
         passport_expiry_date=body.passport_expiry_date,

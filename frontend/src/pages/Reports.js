@@ -12,7 +12,9 @@ import {
   buildBrigadesCsv,
   buildExpiringDocumentsCsv,
   buildFinancesPeriodCsv,
+  buildTemporaryStayRegistrationHtml,
   downloadCsv,
+  downloadHtml,
 } from '../lib/reportExport';
 import { toast } from 'sonner';
 
@@ -35,10 +37,11 @@ const Reports = () => {
     setLoading(true);
     try {
       const h = { headers: getAuthHeader() };
+      const withCompaniesAndRooms = needCompanyAndRoomData || needMigrantData;
       const [brigadesRes, maybeCompaniesRes, maybeRoomsRes, maybeMigrantsRes, maybeFinancesRes] = await Promise.all([
         apiGet('/brigades', h),
-        needCompanyAndRoomData ? apiGet('/companies', h) : Promise.resolve({ data: [] }),
-        needCompanyAndRoomData ? apiGet('/rooms', h) : Promise.resolve({ data: [] }),
+        withCompaniesAndRooms ? apiGet('/companies', h) : Promise.resolve({ data: [] }),
+        withCompaniesAndRooms ? apiGet('/rooms', h) : Promise.resolve({ data: [] }),
         needMigrantData ? apiGet('/migrants', h) : Promise.resolve({ data: [] }),
         needFinanceData ? apiGet('/finances', h) : Promise.resolve({ data: [] }),
       ]);
@@ -159,13 +162,27 @@ const Reports = () => {
         );
       },
     },
+    {
+      id: 7,
+      name: 'Регистрация временного пребывания',
+      description: 'Один HTML-файл со всеми бланками по списку мигрантов (печать и дозаполнение)',
+      onGenerate: (stamp) => {
+        const html = buildTemporaryStayRegistrationHtml(
+          data.migrants,
+          data.brigades,
+          data.companies,
+          maps.roomNumberById
+        );
+        downloadHtml(`hostel-registraciya-prebyvaniya-${stamp}.html`, html);
+      },
+    },
   ];
   const visibleReports = isAdmin
     ? reports
     : isMigrationOfficer
-      ? reports.filter((r) => [4, 6].includes(r.id)) // только мигранты
+      ? reports.filter((r) => [4, 6, 7].includes(r.id)) // мигранты + бланки регистрации
       : isAccountant
-        ? reports.filter((r) => ![4, 6].includes(r.id)) // всё, кроме мигрантовых документов
+        ? reports.filter((r) => ![4, 6, 7].includes(r.id)) // всё, кроме мигрантовых
         : [];
 
   const hasDataForReport = useCallback(
@@ -177,6 +194,7 @@ const Reports = () => {
       if (reportId === 4) return Array.isArray(data.migrants) && data.migrants.length > 0;
       if (reportId === 5) return Array.isArray(data.brigades) && data.brigades.length > 0;
       if (reportId === 6) return Array.isArray(data.migrants) && data.migrants.length > 0;
+      if (reportId === 7) return Array.isArray(data.migrants) && data.migrants.length > 0;
       return false;
     },
     [data]

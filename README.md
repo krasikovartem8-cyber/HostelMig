@@ -1,45 +1,90 @@
 # ХостелМиг
 
-Интерфейс на React (CRACO). Приложение работает **только локально**: все данные хранятся в `localStorage` браузера.
+Веб-приложение для учёта хостела (React + опционально FastAPI + PostgreSQL).
 
-## Первый раз — зависимости
+## Режимы
 
-Из **корня** репозитория (нужен только **Node.js**):
+| Режим | Команда | Описание |
+|--------|---------|----------|
+| **Только браузер** | `npm start` | Данные в `localStorage`, сервер не нужен (`REACT_APP_USE_LOCAL_API=true` в `frontend/.env`). |
+| **Полный стек** | см. ниже | FastAPI + PostgreSQL, фронт ходит в API. |
+
+## Быстрый старт «только фронт»
+
+Нужен **Node.js**. Из корня репозитория:
 
 ```powershell
 npm run setup
-```
-
-## Запуск сайта
-
-Из **корня**:
-
-```powershell
 npm start
 ```
 
-Или из папки `frontend`:
+Сайт: **http://localhost:3000**
+
+## Полный стек: Docker (PostgreSQL) + API + фронт
+
+1. Установите [Docker Desktop](https://www.docker.com/products/docker-desktop/) (или свой PostgreSQL на порту 5432 с БД `Luba`).
+
+2. Один раз — зависимости и файл `backend/.env`:
 
 ```powershell
-cd frontend
-npm start
+npm run setup:all
 ```
 
-Откроется **http://localhost:3000**
+3. Поднимите БД:
 
-## Сборка
+```powershell
+npm run db:up
+```
+
+Подождите несколько секунд, пока Postgres станет healthy (первый запуск дольше).
+
+4. Запустите API и фронт **в одном терминале**:
+
+```powershell
+npm run dev:stack
+```
+
+Откроется **http://localhost:3000** с **`REACT_APP_USE_LOCAL_API=false`** (запросы на `http://127.0.0.1:8000`).
+
+Проверка API: **http://127.0.0.1:8000/health**
+
+Остановить БД:
+
+```powershell
+npm run db:down
+```
+
+### Если Postgres уже установлен локально
+
+Создайте БД `Luba`, выполните `npm run setup:all` (создаст `backend/.env` при отсутствии), отредактируйте `DATABASE_URL` в `backend/.env`, затем `npm run dev:stack` (Docker можно не использовать).
+
+## Прочие команды
+
+Сборка фронта:
 
 ```powershell
 npm run build
 ```
 
-## Очистка `build` и кэша webpack
+Только API (БД должна быть запущена):
+
+```powershell
+npm run dev:api
+```
+
+Фронт с реальным API из **второго** терминала (если не используете `dev:stack`):
+
+```powershell
+npm run start:api
+```
+
+Очистка `build` и кэша:
 
 ```powershell
 npm run clean
 ```
 
-## Тесты фронтенда
+Тесты фронтенда:
 
 ```powershell
 cd frontend
@@ -48,27 +93,14 @@ npm test -- --watchAll=false
 
 ## Тестовые учётные записи
 
-- **admin@hostel.com** / `admin123` — администратор (полный доступ).
+Одинаковые в локальном режиме и при старте API (пользователи создаются/обновляются при запуске сервера):
+
+- **admin@hostel.com** / `admin123` — администратор.
 - **accountant@hostel.com** / `accountant123` — бухгалтер.
 - **migration@hostel.com** / `migration123` — миграционный учёт.
-- **user@hostel.com** / `user123` — сотрудник (только просмотр).
+- **user@hostel.com** / `user123` — только просмотр.
 
-## Backend + PostgreSQL (шаг 1 для диплома)
+## Структура env
 
-Если нужен режим с реальной БД PostgreSQL:
-
-1. Создайте БД `Luba` в PostgreSQL.
-2. Скопируйте `backend/.env.example` в `backend/.env` и проверьте `DATABASE_URL`.
-3. Установите Python-зависимости:
-
-```powershell
-npm run setup:backend
-```
-
-4. Запустите API:
-
-```powershell
-npm run dev:api
-```
-
-Проверка API: откройте `http://127.0.0.1:8000/health` — должно вернуть `{"ok":true,...}`.
+- `frontend/.env` — `REACT_APP_USE_LOCAL_API` и при необходимости `REACT_APP_BACKEND_URL`.
+- `backend/.env` — копия из `backend/.env.example` (создаётся `npm run setup:all`), главное поле `DATABASE_URL`.

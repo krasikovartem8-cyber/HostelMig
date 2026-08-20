@@ -7,6 +7,8 @@ import React, {
   useMemo,
 } from 'react';
 import axios from 'axios';
+import * as localApi from '../services/hostelDeskLocal';
+import { isLocalApi } from '../lib/hostelClient';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || 'http://127.0.0.1:8000').trim().replace(/\/$/, '');
 
@@ -33,6 +35,13 @@ export const AuthProvider = ({ children }) => {
 
   const loadUser = useCallback(async () => {
     try {
+      if (isLocalApi()) {
+        const userData = localApi.request('GET', '/auth/me', null, {
+          Authorization: `Bearer ${token}`,
+        });
+        setUser(userData);
+        return;
+      }
       const response = await axios.get(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -55,6 +64,14 @@ export const AuthProvider = ({ children }) => {
   }, [token, loadUser]);
 
   const login = useCallback(async (email, password) => {
+    if (isLocalApi()) {
+      const out = localApi.login(email, password);
+      localStorage.setItem('token', out.access_token);
+      setToken(out.access_token);
+      setUser(out.user);
+      return out;
+    }
+
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);

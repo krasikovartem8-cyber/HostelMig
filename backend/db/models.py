@@ -80,6 +80,7 @@ class MigrantTable(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     brigade_id: Mapped[str] = mapped_column(String, ForeignKey("brigades.id", ondelete="CASCADE"), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    citizenship: Mapped[str | None] = mapped_column(String(128), nullable=True)
     passport_number: Mapped[str] = mapped_column(String(128), nullable=False)
     passport_issued_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     passport_expiry_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

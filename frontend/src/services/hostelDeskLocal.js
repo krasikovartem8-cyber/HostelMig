@@ -120,6 +120,11 @@ export function loadDb() {
       is_active: u.is_active !== false,
     }));
 
+    parsed.migrants = parsed.migrants.map((m) => ({
+      ...m,
+      citizenship: m.citizenship != null ? String(m.citizenship) : null,
+    }));
+
     return parsed;
   } catch {
     const db = createDefaultDb();
@@ -233,6 +238,7 @@ function migrantDict(m) {
     id: m.id,
     brigade_id: m.brigade_id,
     full_name: m.full_name,
+    citizenship: m.citizenship ?? null,
     passport_number: m.passport_number,
     passport_issued_date: m.passport_issued_date,
     passport_expiry_date: m.passport_expiry_date,
@@ -354,6 +360,25 @@ export function request(method, path, body, headers) {
   }
 
   let mp = matchPath(p, 'companies/:companyId');
+  if (m === 'PUT' && mp) {
+    requireAdminOrAccountant(db, headers);
+    const { companyId } = mp;
+    const c = db.companies.find((x) => x.id === companyId && x.is_active !== false);
+    if (!c) throw httpError(404, 'Компания не найдена');
+    c.name = body.name;
+    c.inn = body.inn;
+    c.kpp = body.kpp || null;
+    c.legal_address = body.legal_address;
+    c.contact_person = body.contact_person;
+    c.contact_phone = body.contact_phone;
+    c.contact_email = body.contact_email;
+    c.tariff_per_day = Number(body.tariff_per_day);
+    c.contract_number = body.contract_number || null;
+    c.contract_date = body.contract_date ? String(body.contract_date) : null;
+    saveDb(db);
+    return companyDict(c);
+  }
+
   if (m === 'DELETE' && mp) {
     requireAdminOrAccountant(db, headers);
     const { companyId } = mp;
@@ -415,6 +440,50 @@ export function request(method, path, body, headers) {
     db.rooms.push(r);
     saveDb(db);
     return roomDict(r);
+  }
+
+  mp = matchPath(p, 'rooms/:roomId/status');
+  if (m === 'PUT' && mp) {
+    requireAdmin(db, headers);
+    const { roomId } = mp;
+    const room = db.rooms.find((x) => x.id === roomId);
+    if (!room) throw httpError(404, 'Комната не найдена');
+    const blockedStatuses = new Set(['maintenance', 'dirty', 'cleaning', 'quarantine']);
+    const activeBrigades = db.brigades.filter((b) => b.room_id === roomId && b.status === 'active');
+    const activeIds = new Set(activeBrigades.map((b) => b.id));
+
+    if (blockedStatuses.has(body.status) && activeBrigades.length) {
+      const candidates = db.rooms.filter(
+        (r) =>
+          r.id !== roomId &&
+          r.bed_count > (r.occupied_beds || 0) &&
+          !blockedStatuses.has(r.status)
+      );
+      if (!candidates.length) throw httpError(400, 'Нет доступных комнат для переселения');
+
+      const reloc = body.relocations || [];
+      const relocMap = {};
+      for (const r of reloc) {
+        relocMap[r.brigade_id] = (r.to_room_id || '').trim();
+      }
+      const relocIds = new Set(Object.keys(relocMap));
+      if (relocIds.size !== activeIds.size || ![...activeIds].every((id) => relocIds.has(id))) {
+        throw httpError(400, 'Для каждой активной бригады в комнате нужно указать новую комнату');
+      }
+
+      for (const b of activeBrigades) {
+        const toRoomId = relocMap[b.id];
+        if (!toRoomId) throw httpError(400, 'Новая комната не выбрана');
+        if (toRoomId === roomId) throw httpError(400, 'Нельзя переселить бригаду в ту же комнату');
+        roomRelease(db, b.room_id);
+        roomOccupy(db, toRoomId);
+        b.room_id = toRoomId;
+      }
+    }
+
+    room.status = body.status;
+    saveDb(db);
+    return roomDict(room);
   }
 
   mp = matchPath(p, 'rooms/:roomId');
@@ -496,8 +565,11 @@ export function request(method, path, body, headers) {
 
     const fullName = String(body.full_name ?? '').trim();
     const passportNumber = String(body.passport_number ?? '').trim();
+    const citizenshipRaw = String(body.citizenship ?? '').trim();
     if (!fullName) throw httpError(400, 'ФИО мигранта обязательно');
     if (!passportNumber) throw httpError(400, 'Номер паспорта обязателен');
+    if (!citizenshipRaw) throw httpError(400, 'Укажите гражданство');
+    if (citizenshipRaw.length > 128) throw httpError(400, 'Гражданство: не более 128 символов');
 
     const issued = body.passport_issued_date ? new Date(body.passport_issued_date) : null;
     const expiry = body.passport_expiry_date ? new Date(body.passport_expiry_date) : null;
@@ -514,6 +586,7 @@ export function request(method, path, body, headers) {
       id: uuid(),
       brigade_id: body.brigade_id,
       full_name: fullName,
+      citizenship: citizenshipRaw,
       passport_number: passportNumber,
       passport_issued_date: issued.toISOString(),
       passport_expiry_date: expiry.toISOString(),

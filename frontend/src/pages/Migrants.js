@@ -2,15 +2,18 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { apiGet, apiPost, apiDelete } from '../lib/hostelClient';
-import { Plus, UserCheck, Calendar, AlertCircle, Trash2, Pencil } from 'lucide-react';
+import { Plus, UserCheck, Calendar, AlertCircle, Trash2, Pencil, FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
+import { buildTemporaryStayRegistrationHtml, downloadHtml } from '../lib/reportExport';
 
 const MIGRANT_OVERRIDES_KEY = 'migrant_local_overrides_v1';
+
+const stampDay = () => new Date().toISOString().slice(0, 10);
 
 const Migrants = () => {
   const { getAuthHeader, isAdmin, isMigrationOfficer, loading: authLoading } = useAuth();
@@ -18,6 +21,8 @@ const Migrants = () => {
   const canEditMigrant = isAdmin || isMigrationOfficer; // админ и миграционный учёт: можно добавлять/удалять
   const [migrants, setMigrants] = useState([]);
   const [brigades, setBrigades] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -32,6 +37,7 @@ const Migrants = () => {
   const [formData, setFormData] = useState({
     brigade_id: '',
     full_name: '',
+    citizenship: '',
     passport_number: '',
     passport_issued_date: '',
     passport_expiry_date: '',
@@ -43,6 +49,7 @@ const Migrants = () => {
   const [editData, setEditData] = useState({
     brigade_id: '',
     full_name: '',
+    citizenship: '',
     passport_number: '',
     passport_issued_date: '',
     passport_expiry_date: '',
@@ -54,12 +61,17 @@ const Migrants = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const [migrantsRes, brigadesRes] = await Promise.all([
-        apiGet('/migrants', { headers: getAuthHeader() }),
-        apiGet('/brigades', { headers: getAuthHeader() }),
+      const h = { headers: getAuthHeader() };
+      const [migrantsRes, brigadesRes, companiesRes, roomsRes] = await Promise.all([
+        apiGet('/migrants', h),
+        apiGet('/brigades', h),
+        apiGet('/companies', h),
+        apiGet('/rooms', h),
       ]);
       setMigrants(migrantsRes.data);
       setBrigades(brigadesRes.data);
+      setCompanies(companiesRes.data);
+      setRooms(roomsRes.data);
     } catch (error) {
       console.error('Failed to load data:', error);
       toast.error('Ошибка загрузки данных');
@@ -82,6 +94,31 @@ const Migrants = () => {
     () => migrants.map((m) => ({ ...m, ...(overrides[m.id] || {}) })),
     [migrants, overrides]
   );
+
+  const roomNumberById = useMemo(
+    () => Object.fromEntries((rooms || []).map((r) => [r.id, String(r.room_number)])),
+    [rooms]
+  );
+
+  const downloadRegistrationFormOne = (migrant) => {
+    try {
+      const html = buildTemporaryStayRegistrationHtml(
+        [migrant],
+        brigades,
+        companies,
+        roomNumberById
+      );
+      const safe = String(migrant.full_name || 'migrant')
+        .slice(0, 48)
+        .replace(/[/\\?%*:|"<>]/g, '-')
+        .trim();
+      downloadHtml(`registraciya-${safe}-${stampDay()}.html`, html);
+      toast.success('Бланк скачан');
+    } catch (e) {
+      console.error(e);
+      toast.error('Не удалось сформировать бланк');
+    }
+  };
 
   const normalizeDocNumber = (value) => String(value || '').trim();
 
@@ -126,6 +163,15 @@ const Migrants = () => {
       return;
     }
     try {
+      const citizenship = String(formData.citizenship || '').trim();
+      if (!citizenship) {
+        toast.error('Укажите гражданство');
+        return;
+      }
+      if (citizenship.length > 128) {
+        toast.error('Гражданство: не более 128 символов');
+        return;
+      }
       const errors = [
         validateDoc(formData.passport_number, {
           required: true,
@@ -158,6 +204,7 @@ const Migrants = () => {
 
       const payload = {
         ...formData,
+        citizenship,
         passport_number: normalizeDocNumber(formData.passport_number),
         migration_card_number: normalizeDocNumber(formData.migration_card_number),
         work_patent_number: normalizeDocNumber(formData.work_patent_number),
@@ -186,6 +233,7 @@ const Migrants = () => {
       setFormData({
         brigade_id: '',
         full_name: '',
+        citizenship: '',
         passport_number: '',
         passport_issued_date: '',
         passport_expiry_date: '',
@@ -259,6 +307,7 @@ const Migrants = () => {
     setEditData({
       brigade_id: migrant.brigade_id || '',
       full_name: migrant.full_name || '',
+      citizenship: migrant.citizenship || '',
       passport_number: migrant.passport_number || '',
       passport_issued_date: migrant.passport_issued_date ? String(migrant.passport_issued_date).slice(0, 10) : '',
       passport_expiry_date: migrant.passport_expiry_date ? String(migrant.passport_expiry_date).slice(0, 10) : '',
@@ -276,6 +325,15 @@ const Migrants = () => {
     if (!editingId) return;
     if (activeBrigades.length === 0) {
       toast.error('Сначала создайте хотя бы одну активную бригаду');
+      return;
+    }
+    const citizenship = String(editData.citizenship || '').trim();
+    if (!citizenship) {
+      toast.error('Укажите гражданство');
+      return;
+    }
+    if (citizenship.length > 128) {
+      toast.error('Гражданство: не более 128 символов');
       return;
     }
     const errors = [
@@ -311,6 +369,7 @@ const Migrants = () => {
     const payload = {
       brigade_id: editData.brigade_id,
       full_name: String(editData.full_name || '').trim(),
+      citizenship,
       passport_number: normalizeDocNumber(editData.passport_number),
       passport_issued_date: new Date(editData.passport_issued_date).toISOString(),
       passport_expiry_date: new Date(editData.passport_expiry_date).toISOString(),
@@ -396,6 +455,18 @@ const Migrants = () => {
                   required
                   data-testid="migrant-name-input"
                   placeholder="Иванов Иван Иванович"
+                />
+              </div>
+              <div>
+                <Label htmlFor="citizenship">Гражданство</Label>
+                <Input
+                  id="citizenship"
+                  value={formData.citizenship}
+                  onChange={(e) => setFormData({ ...formData, citizenship: e.target.value })}
+                  required
+                  data-testid="migrant-citizenship-input"
+                  placeholder="Например: Узбекистан"
+                  maxLength={128}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -507,6 +578,17 @@ const Migrants = () => {
                   <Label htmlFor="edit_full_name">ФИО</Label>
                   <Input id="edit_full_name" value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} required />
                 </div>
+                <div>
+                  <Label htmlFor="edit_citizenship">Гражданство</Label>
+                  <Input
+                    id="edit_citizenship"
+                    value={editData.citizenship}
+                    onChange={(e) => setEditData({ ...editData, citizenship: e.target.value })}
+                    required
+                    maxLength={128}
+                    placeholder="Например: Узбекистан"
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="edit_passport_number">Номер паспорта</Label>
@@ -549,12 +631,14 @@ const Migrants = () => {
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold tracking-wider h-10">
             <tr>
               <th className="text-left px-4 py-3">ФИО</th>
+              <th className="text-left px-4 py-3">Гражданство</th>
               <th className="text-left px-4 py-3">Бригада</th>
               <th className="text-left px-4 py-3">Паспорт</th>
               <th className="text-left px-4 py-3">Срок паспорта</th>
               <th className="text-left px-4 py-3">Патент</th>
               <th className="text-left px-4 py-3">Срок патента</th>
-              {canEditMigrant && <th className="text-right px-4 py-3 w-14"> </th>}
+              <th className="text-center px-2 py-3 w-14 text-slate-500">Бланк</th>
+              {canEditMigrant && <th className="text-right px-4 py-3 w-28"> </th>}
             </tr>
           </thead>
           <tbody>
@@ -565,6 +649,7 @@ const Migrants = () => {
                 className="hover:bg-slate-50/50 transition-colors border-b border-slate-100 last:border-0"
               >
                 <td className="px-4 py-3 text-sm font-medium text-slate-700">{migrant.full_name}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{migrant.citizenship || '—'}</td>
                 <td className="px-4 py-3 text-sm text-slate-600">{getBrigadeName(migrant.brigade_id)}</td>
                 <td className="px-4 py-3 text-sm text-slate-600">{migrant.passport_number}</td>
                 <td className="px-4 py-3 text-sm text-slate-600">
@@ -597,6 +682,20 @@ const Migrants = () => {
                       )}
                     </div>
                   ) : '-'}
+                </td>
+                <td className="px-2 py-3 text-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 text-slate-600 border-slate-200 hover:bg-primary/10 hover:text-primary hover:border-primary/30"
+                    onClick={() => downloadRegistrationFormOne(migrant)}
+                    title="Скачать бланк регистрации временного пребывания (только этот мигрант)"
+                    aria-label="Бланк регистрации"
+                    data-testid={`migrant-regform-${migrant.id}`}
+                  >
+                    <FileText className="w-4 h-4" />
+                  </Button>
                 </td>
                 {canEditMigrant && (
                   <td className="px-4 py-3 text-right">

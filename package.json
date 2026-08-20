@@ -3,11 +3,21 @@
   "private": true,
   "scripts": {
     "start": "npm run start --prefix frontend",
+    "start:api": "cross-env REACT_APP_USE_LOCAL_API=false npm run start --prefix frontend",
     "dev": "npm run start --prefix frontend",
     "build": "npm run build --prefix frontend",
     "setup": "npm install --legacy-peer-deps --prefix frontend && npm install",
     "setup:backend": "python -m pip install -r backend/requirements.txt",
+    "setup:all": "npm run setup && npm run setup:backend && node scripts/ensure-backend-env.mjs",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
     "dev:api": "python -m uvicorn server:app --reload --app-dir backend --port 8000",
+    "dev:stack": "concurrently -k -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run start:api\"",
     "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3"
   }
 }

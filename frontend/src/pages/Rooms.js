@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 
 const BLOCKED_ROOM_STATUSES = new Set(['maintenance', 'dirty', 'cleaning', 'quarantine']);
 const NO_ROOM = '__none__';
+const BRIGADE_MOVES_KEY = 'brigade_room_moves_v1';
 const ROOM_STATUS_LABELS = {
   available: 'Доступна',
   occupied: 'Занята',
@@ -167,6 +168,14 @@ const Rooms = () => {
       return;
     }
     try {
+      const moveEntries = affected.map((b) => ({
+        id: `${Date.now()}-${b.id}`,
+        brigade_id: b.id,
+        brigade_name: b.name,
+        from_room_id: b.room_id || null,
+        to_room_id: relocateTargets[b.id] || null,
+        moved_at: new Date().toISOString(),
+      }));
       await apiPut(
         `/rooms/${pendingRoom.id}/status`,
         {
@@ -178,6 +187,12 @@ const Rooms = () => {
         },
         { headers: getAuthHeader() }
       );
+      try {
+        const existing = JSON.parse(localStorage.getItem(BRIGADE_MOVES_KEY) || '[]');
+        localStorage.setItem(BRIGADE_MOVES_KEY, JSON.stringify([...moveEntries, ...existing]));
+      } catch {
+        // no-op: if localStorage is unavailable, relocation still succeeds via API
+      }
       setRelocateOpen(false);
       setPendingRoom(null);
       setPendingStatus('');
@@ -385,7 +400,12 @@ const Rooms = () => {
                   <div key={b.id} className="border rounded-lg p-3">
                     <p className="text-sm font-medium">{b.name}</p>
                     <p className="text-xs text-muted-foreground mb-2">
-                      Люди: {people.length ? people.map((m) => m.full_name).join(', ') : 'нет данных'}
+                      Люди:{' '}
+                      {people.length
+                        ? people
+                            .map((m) => (m.citizenship ? `${m.full_name} (${m.citizenship})` : m.full_name))
+                            .join(', ')
+                        : 'нет данных'}
                     </p>
                     <select
                       className="w-full h-9 border border-slate-200 rounded-md px-2 text-sm"
